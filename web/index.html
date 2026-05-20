@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32 WebSocket 客户端</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        input[type="text"], input[type="number"] {
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            padding: 8px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .status.disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .messages {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: scroll;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .message.received {
+            background-color: #e7f3ff;
+        }
+        .message.sent {
+            background-color: #e8f5e9;
+        }
+        .message.system {
+            background-color: #fff3e0;
+            font-style: italic;
+        }
+        .ble-container {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            background-color: #f9f9f9;
+        }
+        .ble-container h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        .ble-device {
+            background: white;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            border-left: 4px solid #4CAF50;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .ble-device:last-child {
+            margin-bottom: 0;
+        }
+        .ble-device .name {
+            font-weight: bold;
+            color: #333;
+            font-size: 14px;
+        }
+        .ble-device .info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            line-height: 1.5;
+        }
+        .ble-device .rssi {
+            display: inline-block;
+            padding: 2px 6px;
+            background-color: #e7f3ff;
+            border-radius: 10px;
+            font-size: 11px;
+            color: #31708f;
+            margin-right: 8px;
+        }
+        .ble-device .manufacturer {
+            display: inline-block;
+            padding: 2px 6px;
+            background-color: #fff3e0;
+            border-radius: 10px;
+            font-size: 11px;
+            color: #8a6d3b;
+        }
+        .ble-count {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 WebSocket 客户端</h1>
+        
+        <div class="controls">
+            <input type="text" id="ip" placeholder="IP地址" value="10.20.2.245">
+            <input type="number" id="port" placeholder="端口" value="81">
+            <button id="connectBtn" onclick="connect()">连接</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>断开</button>
+        </div>
+        
+        <div id="status" class="status disconnected">未连接</div>
+        
+        <div class="messages" id="messages"></div>
+        
+        <div class="controls" style="margin-top: 20px;">
+            <input type="text" id="inputMessage" placeholder="输入消息..." style="width: 60%;">
+            <button id="sendBtn" onclick="sendMessage()" disabled>发送</button>
+        </div>
+        <div style="font-size: 12px; color: #666; margin-bottom: 15px;">
+            BLE扫描操作：<code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px;">scan</code> 或 <code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px;">ble scan</code> 或 <code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px;">扫描BLE</code>
+        </div>
+
+        <!-- BLE设备显示区域 -->
+        <div class="ble-container" id="bleContainer">
+            <h3>BLE设备列表</h3>
+            <div class="ble-count" id="bleCount">未扫描</div>
+            <div id="bleDevices">
+                <p style="text-align: center; color: #999;">等待扫描结果...</p>
+            </div>
+        </div>
+  
+    </div>
+
+    <script>
+        var ws;
+        var statusDiv = document.getElementById('status');
+        var messagesDiv = document.getElementById('messages');
+        var connectBtn = document.getElementById('connectBtn');
+        var disconnectBtn = document.getElementById('disconnectBtn');
+        var sendBtn = document.getElementById('sendBtn');
+        var inputMessage = document.getElementById('inputMessage');
+        var bleDevicesDiv = document.getElementById('bleDevices');
+        var bleCountDiv = document.getElementById('bleCount');
+
+        function connect() {
+            var ip = document.getElementById('ip').value;
+            var port = document.getElementById('port').value;
+            
+            // 创建WebSocket连接
+            ws = new WebSocket('ws://' + ip + ':' + port);
+            
+            ws.onopen = function() {
+                statusDiv.className = 'status connected';
+                statusDiv.textContent = '已连接到 ' + ip + ':' + port;
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
+                addMessage('系统', 'WebSocket连接已建立', 'system');
+            };
+            
+            ws.onmessage = function(event) {
+                // 尝试解析JSON数据（BLE设备信息）
+                try {
+                    var data = JSON.parse(event.data);
+                    if (data.devices && Array.isArray(data.devices)) {
+                        // BLE设备数据，只在BLE区域显示，不显示在消息框
+                        displayBleDevices(data);
+                        return;
+                    }
+                } catch (e) {
+                    // 不是JSON格式，继续作为普通消息处理
+                }
+                
+                // 普通消息，显示在消息框中
+                addMessage('服务器', event.data, 'received');
+            };
+            
+            ws.onclose = function() {
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = '已断开连接';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+                addMessage('系统', 'WebSocket连接已断开', 'system');
+            };
+            
+            ws.onerror = function(error) {
+                addMessage('系统', '连接错误: ' + error, 'system');
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function sendMessage() {
+            var message = inputMessage.value.trim();
+            if (message && ws) {
+                ws.send(message);
+                addMessage('我', message, 'sent');
+                inputMessage.value = '';
+            }
+        }
+
+        function addMessage(sender, message, type) {
+            var messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + type;
+            messageDiv.innerHTML = '<strong>' + sender + ':</strong> ' + message;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // 显示BLE设备列表
+        function displayBleDevices(data) {
+            var devices = data.devices;
+            var count = data.count || devices.length;
+            
+            // 更新设备数量
+            bleCountDiv.textContent = '扫描到 ' + count + ' 个BLE设备';
+            
+            // 清空现有设备列表
+            bleDevicesDiv.innerHTML = '';
+            
+            // 如果没有设备
+            if (devices.length === 0) {
+                bleDevicesDiv.innerHTML = '<p style="text-align: center; color: #999;">未发现BLE设备</p>';
+                return;
+            }
+            
+            // 遍历设备数组
+            devices.forEach(function(device, index) {
+                var deviceDiv = document.createElement('div');
+                deviceDiv.className = 'ble-device';
+                
+                var name = device.name || 'Unknown';
+                var address = device.address || 'N/A';
+                var rssi = device.rssi || 'N/A';
+                var manufacturerId = device.manufacturerId || 'N/A';
+                var manufacturer = device.manufacturer || 'Unknown';
+                
+                deviceDiv.innerHTML = `
+                    <div class="name">${name}</div>
+                    <div class="info">
+                        <span>地址: ${address}</span><br>
+                        <span class="rssi">RSSI: ${rssi} dBm</span>
+                        <span class="manufacturer">厂商: ${manufacturer}</span>
+                        <span class="manufacturer-id">ID: ${manufacturerId}</span>
+                    </div>
+                `;
+                
+                bleDevicesDiv.appendChild(deviceDiv);
+            });
+        }
+
+        // 回车发送
+        inputMessage.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
