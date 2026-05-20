@@ -6,4 +6,6 @@ ESP32采用了大分区方案，以便上传更多库和所需开发代码
 ; 使用大Flash分区方案
 board_build.partitions = huge_app.csv
 
+前端网页：https://cngzray.github.io/esp32-websocket-withBLEscan/web/
+
 <img width="665" height="824" alt="image" src="https://github.com/user-attachments/assets/9236d8d0-6087-4313-9c24-b02ca0cf3475" />
